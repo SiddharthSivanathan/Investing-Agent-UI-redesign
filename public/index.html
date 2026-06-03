@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Value Investing Agent</title>
+    <meta name="description" content="AI-powered value investing analysis — Graham &amp; Buffett principles." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%88%3C/text%3E%3C/svg%3E" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink: { 950: '#06080d', 900: '#0b0f17', 800: '#121826', 700: '#1a2233', 600: '#2a3447' },
+              gold: { 400: '#f4cf6b', 500: '#e6b94c', 600: '#c89a32' },
+              jade: { 400: '#36d399', 500: '#22b585' },
+              rose: { 400: '#fb7185', 500: '#e11d48' },
+            },
+            fontFamily: {
+              display: ['"Fraunces"', 'Georgia', 'serif'],
+              sans: ['"Inter"', 'ui-sans-serif', 'system-ui'],
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="bg-ink-950 text-slate-100 font-sans antialiased min-h-screen">
+    <div class="bg-grid"></div>
+    <div class="glow glow-1"></div>
+    <div class="glow glow-2"></div>
+
+    <header class="relative z-10 border-b border-white/5 backdrop-blur-md bg-ink-950/60">
+      <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="size-10 rounded-xl bg-gradient-to-br from-gold-400 to-gold-600 grid place-items-center text-ink-950 font-display font-bold text-lg shadow-lg shadow-gold-500/20">
+            V
+          </div>
+          <div>
+            <h1 class="font-display text-xl tracking-tight">Value Investing Agent</h1>
+            <p class="text-xs text-slate-400">Graham &amp; Buffett, on demand.</p>
+          </div>
+        </div>
+        <div class="hidden md:flex items-center gap-2 text-xs">
+          <span class="px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-slate-300">
+            Provider: <span id="provider-pill" class="text-gold-400 font-medium">…</span>
+          </span>
+          <button id="provider-btn" class="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition">
+            Settings
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="relative z-10 max-w-7xl mx-auto px-6 pt-12 pb-24">
+      <!-- Hero / search -->
+      <section class="text-center max-w-3xl mx-auto">
+        <div class="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-gold-400/80 mb-4">
+          <span class="size-1.5 rounded-full bg-gold-400 animate-pulse"></span>
+          <span>Intrinsic value, not price</span>
+        </div>
+        <h2 class="font-display text-4xl md:text-6xl leading-[1.05] tracking-tight">
+          Analyze any stock<br />
+          <span class="bg-gradient-to-r from-gold-400 via-gold-500 to-amber-300 bg-clip-text text-transparent">
+            like Buffett would.
+          </span>
+        </h2>
+        <p class="mt-5 text-slate-400 text-lg">
+          DCF, Graham number, moat scoring and margin of safety — in one polished dashboard.
+        </p>
+
+        <div class="mt-8 relative">
+          <div class="relative">
+            <input
+              id="search"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Search a ticker — AAPL, MSFT, BRK-B…"
+              class="w-full px-6 py-5 pr-32 rounded-2xl bg-ink-800/80 border border-white/10 text-lg placeholder:text-slate-500 focus:outline-none focus:border-gold-500/50 focus:ring-2 focus:ring-gold-500/20 shadow-2xl shadow-black/40"
+            />
+            <button
+              id="analyze-btn"
+              class="absolute right-2 top-1/2 -translate-y-1/2 px-5 py-3 rounded-xl bg-gradient-to-br from-gold-400 to-gold-600 text-ink-950 font-semibold hover:brightness-110 active:scale-95 transition shadow-lg shadow-gold-500/20"
+            >
+              Analyze →
+            </button>
+          </div>
+          <div id="suggestions" class="absolute left-0 right-0 mt-2 hidden rounded-2xl bg-ink-800/95 border border-white/10 backdrop-blur-xl shadow-2xl shadow-black/60 overflow-hidden z-20"></div>
+        </div>
+
+        <div class="mt-6 flex flex-wrap justify-center gap-2 text-sm text-slate-400">
+          <span class="text-slate-500">Try:</span>
+          <button class="chip" data-ticker="AAPL">AAPL</button>
+          <button class="chip" data-ticker="MSFT">MSFT</button>
+          <button class="chip" data-ticker="GOOGL">GOOGL</button>
+          <button class="chip" data-ticker="BRK-B">BRK-B</button>
+          <button class="chip" data-ticker="KO">KO</button>
+          <button class="chip" data-ticker="JNJ">JNJ</button>
+        </div>
+      </section>
+
+      <!-- Loading -->
+      <section id="loading" class="hidden mt-16 text-center">
+        <div class="inline-flex flex-col items-center gap-4">
+          <div class="size-12 rounded-full border-2 border-gold-500/30 border-t-gold-500 animate-spin"></div>
+          <p class="text-slate-400 text-sm">Crunching financials…</p>
+        </div>
+      </section>
+
+      <!-- Error -->
+      <section id="error" class="hidden mt-12 max-w-2xl mx-auto rounded-2xl bg-rose-500/10 border border-rose-500/30 p-5 text-rose-200"></section>
+
+      <!-- Partial-data notice -->
+      <div id="data-notice" class="hidden mt-8 max-w-3xl mx-auto rounded-xl bg-amber-500/10 border border-amber-500/30 px-4 py-3 text-sm text-amber-200"></div>
+
+      <!-- Results -->
+      <section id="results" class="hidden mt-16 space-y-8 fade-in">
+        <!-- Header card -->
+        <div class="card p-6 md:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+          <div>
+            <div class="flex items-center gap-3">
+              <h3 id="r-ticker" class="font-display text-3xl md:text-4xl"></h3>
+              <span id="r-exchange" class="text-xs px-2 py-1 rounded-full bg-white/5 border border-white/10 text-slate-400"></span>
+            </div>
+            <p id="r-name" class="text-slate-300 mt-1"></p>
+            <p id="r-sector" class="text-xs text-slate-500 mt-1"></p>
+          </div>
+          <div class="text-left md:text-right">
+            <div class="font-display text-4xl md:text-5xl" id="r-price">—</div>
+            <div id="r-change" class="text-sm font-medium"></div>
+            <div class="text-xs text-slate-500 mt-1" id="r-currency"></div>
+          </div>
+        </div>
+
+        <!-- Verdict + KPIs -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div id="verdict-card" class="card p-6 lg:col-span-1">
+            <p class="text-xs uppercase tracking-widest text-slate-400 mb-3">Verdict</p>
+            <div id="verdict-status" class="font-display text-3xl mb-2">—</div>
+            <div class="flex items-baseline gap-2 mb-4">
+              <span class="text-2xl font-semibold" id="verdict-mos">—</span>
+              <span class="text-xs text-slate-400">margin of safety</span>
+            </div>
+            <p id="verdict-text" class="text-sm text-slate-300 leading-relaxed"></p>
+          </div>
+          <div class="card p-6 lg:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4" id="kpi-grid"></div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="card overflow-hidden">
+          <div class="flex flex-wrap border-b border-white/5 bg-ink-900/40">
+            <button data-tab="valuation" class="tab tab-active">Valuation</button>
+            <button data-tab="moat" class="tab">Moat</button>
+            <button data-tab="ratios" class="tab">Ratios</button>
+            <button data-tab="financials" class="tab">Financials</button>
+            <button data-tab="chart" class="tab">Price chart</button>
+          </div>
+          <div class="p-6 md:p-8">
+            <div id="tab-valuation" class="tab-panel">
+              <div class="grid lg:grid-cols-2 gap-6">
+                <div class="space-y-4" id="valuation-summary"></div>
+                <div>
+                  <p id="dcf-chart-title" class="text-xs uppercase tracking-widest text-slate-400 mb-3">DCF PROJECTED FREE CASH FLOW</p>
+                  <div class="h-80 relative"><canvas id="dcf-chart"></canvas></div>
+                </div>
+              </div>
+              <div class="mt-8">
+                <p class="text-xs uppercase tracking-widest text-slate-400 mb-3">Graham defensive criteria</p>
+                <div id="graham-criteria" class="grid sm:grid-cols-2 gap-3"></div>
+              </div>
+            </div>
+
+            <div id="tab-moat" class="tab-panel hidden">
+              <div class="grid lg:grid-cols-2 gap-6">
+                <div>
+                  <p class="text-xs uppercase tracking-widest text-slate-400 mb-3">Moat dimensions</p>
+                  <div class="h-80 relative"><canvas id="moat-chart"></canvas></div>
+                </div>
+                <div id="moat-detail" class="space-y-4"></div>
+              </div>
+            </div>
+
+            <div id="tab-ratios" class="tab-panel hidden">
+              <div id="ratios-grid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+            </div>
+
+            <div id="tab-financials" class="tab-panel hidden">
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm" id="financials-table"></table>
+              </div>
+            </div>
+
+            <div id="tab-chart" class="tab-panel hidden">
+              <div class="flex items-center justify-between mb-3">
+                <p class="text-xs uppercase tracking-widest text-slate-400">Closing price</p>
+                <div class="flex gap-1 text-xs">
+                  <button class="range-btn" data-years="1">1Y</button>
+                  <button class="range-btn range-active" data-years="3">3Y</button>
+                  <button class="range-btn" data-years="5">5Y</button>
+                </div>
+              </div>
+              <div class="h-96 relative"><canvas id="price-chart"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Empty hint -->
+      <section id="empty" class="mt-20 text-center text-slate-500 text-sm">
+        <p>Powered by Yahoo Finance · No API key required for default provider</p>
+      </section>
+    </main>
+
+    <!-- Provider modal -->
+    <div id="modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm grid place-items-center p-6">
+      <div class="card max-w-md w-full p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-display text-xl">Data provider</h3>
+          <button id="modal-close" class="text-slate-400 hover:text-white">✕</button>
+        </div>
+        <p class="text-sm text-slate-400 mb-4">
+          Switch the upstream data source. Finnhub &amp; Alpha Vantage need a free API key.
+        </p>
+        <div class="space-y-3" id="provider-list"></div>
+        <div class="mt-4">
+          <label class="text-xs text-slate-400">API key (optional)</label>
+          <input id="provider-key" type="text" placeholder="Required for finnhub / alpha-vantage" class="w-full mt-1 px-3 py-2 rounded-lg bg-ink-900/60 border border-white/10 text-sm focus:outline-none focus:border-gold-500/50" />
+        </div>
+        <button id="provider-save" class="mt-5 w-full py-2.5 rounded-lg bg-gradient-to-br from-gold-400 to-gold-600 text-ink-950 font-semibold">
+          Save
+        </button>
+      </div>
+    </div>
+
+    <footer class="relative z-10 border-t border-white/5 py-6 text-center text-xs text-slate-500">
+      Educational use only — not investment advice. ·
+      <a class="hover:text-gold-400" href="https://github.com/danielchu97/Value-Investing-Agent" target="_blank" rel="noopener">GitHub</a>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

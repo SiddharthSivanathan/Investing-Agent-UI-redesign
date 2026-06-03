@@ -7,8 +7,16 @@
  * @see https://www.npmjs.com/package/yahoo-finance2
  */
 
-import yahooFinance from 'yahoo-finance2';
+import YahooFinance from 'yahoo-finance2';
 import { BaseProvider, TickerNotFoundError } from './base.js';
+
+// yahoo-finance2 v2.14+ exports a class by default; older versions export a singleton.
+// Support both shapes transparently.
+const yahooFinance: any =
+  typeof (YahooFinance as any) === 'function' &&
+  typeof (YahooFinance as any).prototype?.quote === 'function'
+    ? new (YahooFinance as any)()
+    : YahooFinance;
 import type {
   StockQuote,
   Financials,
@@ -20,8 +28,15 @@ import type {
   ProviderConfig,
 } from './types.js';
 
-// Suppress yahoo-finance2 validation warnings in production
-yahooFinance.suppressNotices(['yahooSurvey', 'ripHistorical']);
+// Suppress yahoo-finance2 validation warnings in production (best-effort across versions)
+try {
+  (yahooFinance as unknown as { suppressNotices?: (n: string[]) => void }).suppressNotices?.([
+    'yahooSurvey',
+    'ripHistorical',
+  ]);
+} catch {
+  // ignore: older versions don't expose this method
+}
 
 /**
  * Yahoo Finance Provider

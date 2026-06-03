@@ -7,15 +7,19 @@
 
 import type { DataProvider, ProviderConfig, ProviderFactory } from './types.js';
 import { YahooFinanceProvider } from './yahoo-finance.js';
+import { YahooDirectProvider } from './yahoo-direct.js';
 import { AlphaVantageProvider } from './alpha-vantage.js';
 import { FinnhubProvider } from './finnhub.js';
+import { StockAnalysisProvider } from './stockanalysis.js';
 
 // Re-export types and classes
 export * from './types.js';
 export * from './base.js';
 export { YahooFinanceProvider } from './yahoo-finance.js';
+export { YahooDirectProvider } from './yahoo-direct.js';
 export { AlphaVantageProvider } from './alpha-vantage.js';
 export { FinnhubProvider } from './finnhub.js';
+export { StockAnalysisProvider } from './stockanalysis.js';
 
 /**
  * Provider Registry
@@ -25,6 +29,8 @@ export { FinnhubProvider } from './finnhub.js';
  */
 const providerFactories: Map<string, ProviderFactory> = new Map([
   ['yahoo-finance', (config) => new YahooFinanceProvider(config)],
+  ['yahoo-direct', (config) => new YahooDirectProvider(config)],
+  ['stockanalysis', (config) => new StockAnalysisProvider(config)],
   ['alpha-vantage', (config) => new AlphaVantageProvider(config)],
   ['finnhub', (config) => new FinnhubProvider(config)],
 ]);
@@ -77,22 +83,25 @@ export function getProviderInfo(): Array<{
   }> = [];
 
   for (const [name, factory] of providerFactories) {
+    let instance: DataProvider | null = null;
     try {
-      const instance = factory();
-      providers.push({
-        name,
-        displayName: instance.displayName,
-        requiresApiKey: instance.requiresApiKey,
-        isActive: name === currentProviderName,
-      });
+      instance = factory();
     } catch {
-      providers.push({
-        name,
-        displayName: name,
-        requiresApiKey: false,
-        isActive: name === currentProviderName,
-      });
+      // Provider constructor refused (likely missing API key). Re-try with a
+      // dummy key just to read the static-ish metadata. We never call the
+      // instance, so the bad key is harmless.
+      try {
+        instance = factory({ name, apiKey: '__metadata-probe__' });
+      } catch {
+        instance = null;
+      }
     }
+    providers.push({
+      name,
+      displayName: instance?.displayName ?? name,
+      requiresApiKey: instance?.requiresApiKey ?? true,
+      isActive: name === currentProviderName,
+    });
   }
 
   return providers;
@@ -122,14 +131,9 @@ export function createProvider(name = 'yahoo-finance', config?: ProviderConfig):
  * @param config - Provider configuration
  */
 export async function setProvider(name: string, config?: ProviderConfig): Promise<void> {
+  // Construct the provider — this surfaces missing-API-key errors immediately
+  // without burning quota on a health check.
   const provider = createProvider(name, config);
-
-  // Verify provider is working
-  const healthy = await provider.healthCheck();
-  if (!healthy) {
-    throw new Error(`Provider ${name} health check failed. Check API key and network.`);
-  }
-
   currentProvider = provider;
   currentProviderName = name;
 }

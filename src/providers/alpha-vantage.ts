@@ -64,16 +64,27 @@ export class AlphaVantageProvider extends BaseProvider {
       throw new Error(`API request failed: ${response.status}`);
     }
 
-    const data = await response.json() as T & { Note?: string; 'Error Message'?: string };
+    const data = await response.json() as T & {
+      Note?: string;
+      Information?: string;
+      'Error Message'?: string;
+    };
 
-    // Check for API limit message
-    if (data.Note?.includes('API call frequency')) {
+    // Rate-limit / quota signals (Alpha Vantage uses several shapes)
+    const limitText = [data.Note, data.Information].filter(Boolean).join(' ');
+    if (/API call frequency|rate limit|requests per (?:day|minute)/i.test(limitText)) {
       throw new RateLimitError(this.name);
     }
 
-    // Check for error message
+    // Explicit error
     if (data['Error Message']) {
       throw new Error(data['Error Message']);
+    }
+
+    // Standalone Information payload (free-tier notice) → treat as rate-limit
+    // so we don't misclassify as "ticker not found".
+    if (data.Information && Object.keys(data as object).length <= 2) {
+      throw new RateLimitError(this.name);
     }
 
     return data;

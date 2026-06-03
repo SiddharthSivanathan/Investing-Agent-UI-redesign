@@ -140,102 +140,240 @@ export class FinnhubProvider extends BaseProvider {
 
   /**
    * Fetch financial statements
+   *
+   * Strategy:
+   *   1. Pull `/stock/financials-reported` which returns the actual 10-K filings
+   *      (SEC XBRL concept/value pairs). This is the only Finnhub endpoint
+   *      that has the full statement detail.
+   *   2. Cross-reference each year with `/stock/metric` series for fallback
+   *      values (EPS, book value, FCF) when concepts are missing.
+   *   3. Map each statement using a list of likely US-GAAP concept names.
    */
   protected async fetchFinancials(ticker: string, years: number): Promise<Financials> {
-    const financialsData = await this.request<{
-      financials: Array<{
-        year: number;
-        quarter: number;
-        revenue: number;
-        grossProfit: number;
-        operatingIncome: number;
-        netIncome: number;
-        eps: number;
-        ebitda: number;
-        totalAssets: number;
-        totalLiabilities: number;
-        totalEquity: number;
-        totalCash: number;
-        totalDebt: number;
-        operatingCashFlow: number;
-        capitalExpenditure: number;
-        freeCashFlow: number;
-        dividendsPaid: number;
-      }>;
-    }>('/stock/financials-reported', { symbol: ticker, freq: 'annual' });
-
-    // Get basic financials as backup
-    const basicFinancials = await this.request<{
-      metric: Record<string, number>;
-      series: {
-        annual: {
-          eps: Array<{ period: string; v: number }>;
-          revenue: Array<{ period: string; v: number }>;
-          netIncome: Array<{ period: string; v: number }>;
-        };
+    type Concept = { concept?: string; label?: string; unit?: string; value?: number };
+    type ReportedFiling = {
+      year?: number;
+      quarter?: number;
+      form?: string;
+      startDate?: string;
+      endDate?: string;
+      report?: {
+        ic?: Concept[];
+        bs?: Concept[];
+        cf?: Concept[];
       };
-    }>('/stock/metric', { symbol: ticker, metric: 'all' });
+    };
+
+    const [filingsData, basicFinancials] = await Promise.all([
+      this.request<{ data?: ReportedFiling[] }>('/stock/financials-reported', {
+        symbol: ticker,
+        freq: 'annual',
+      }).catch(() => ({ data: [] as ReportedFiling[] })),
+      this.request<{
+        metric: Record<string, number>;
+        series: {
+          annual: Record<string, Array<{ period: string; v: number }>>;
+        };
+      }>('/stock/metric', { symbol: ticker, metric: 'all' }).catch(() => ({
+        metric: {} as Record<string, number>,
+        series: { annual: {} } as { annual: Record<string, Array<{ period: string; v: number }>> },
+      })),
+    ]);
+
+    const annualFilings = (filingsData.data || [])
+      .filter((f) => (f.form ?? '').includes('10-K') || (f.quarter ?? 0) === 0)
+      .sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
+      .slice(0, years);
+
+    const metric = basicFinancials.metric || {};
+    const seriesAnnual = basicFinancials.series?.annual || {};
+
+    const series = (key: string, year: string): number | null => {
+      const arr = seriesAnnual[key] || [];
+      const hit = arr.find((p) => p.period?.startsWith(year));
+      return typeof hit?.v === 'number' ? hit.v : null;
+    };
+
+    // Find a concept in a report section, trying multiple US-GAAP names.
+    const find = (section: Concept[] | undefined, names: string[]): number => {
+      if (!section?.length) return 0;
+      for (const name of names) {
+        const lower = name.toLowerCase();
+        const hit = section.find((c) => (c.concept || '').toLowerCase().endsWith(lower));
+        if (hit && typeof hit.value === 'number') return hit.value;
+      }
+      // Loose match on label
+      for (const name of names) {
+        const hit = section.find((c) =>
+          (c.label || '').toLowerCase().includes(name.toLowerCase())
+        );
+        if (hit && typeof hit.value === 'number') return hit.value;
+      }
+      return 0;
+    };
 
     const incomeStatements: IncomeStatement[] = [];
     const balanceSheets: BalanceSheet[] = [];
     const cashFlowStatements: CashFlowStatement[] = [];
 
-    // Parse from series data if available
-    const series = basicFinancials.series?.annual || {};
-    const epsData = series.eps || [];
-    const revenueData = series.revenue || [];
+    // Build per-year statements from the actual filings
+    for (const f of annualFilings) {
+      const year = String(f.year ?? (f.endDate || '').slice(0, 4));
+      const ic = f.report?.ic;
+      const bs = f.report?.bs;
+      const cf = f.report?.cf;
 
-    for (let i = 0; i < Math.min(years, epsData.length); i++) {
-      const year = epsData[i]?.period?.substring(0, 4) || `${new Date().getFullYear() - i}`;
+      const revenue = find(ic, ['Revenues', 'SalesRevenueNet', 'RevenueFromContractWithCustomerExcludingAssessedTax']);
+      const costOfRevenue = find(ic, ['CostOfRevenue', 'CostOfGoodsAndServicesSold', 'CostOfGoodsSold']);
+      const grossProfit = find(ic, ['GrossProfit']) || (revenue - costOfRevenue);
+      const operatingIncome = find(ic, ['OperatingIncomeLoss', 'OperatingIncome']);
+      const netIncome = find(ic, ['NetIncomeLoss', 'NetIncome', 'ProfitLoss']);
+      const eps = find(ic, [
+        'EarningsPerShareDiluted',
+        'EarningsPerShareBasic',
+        'IncomeLossFromContinuingOperationsPerDilutedShare',
+      ]) || series('epsBasicExclExtraItemsAnnual', year) || 0;
+      const sharesOutstanding =
+        find(ic, [
+          'WeightedAverageNumberOfDilutedSharesOutstanding',
+          'WeightedAverageNumberOfSharesOutstandingBasic',
+          'CommonStockSharesOutstanding',
+        ]) || (netIncome > 0 && eps > 0 ? netIncome / eps : 0);
+      const ebitda = find(ic, ['Ebitda', 'EarningsBeforeInterestTaxesDepreciationAndAmortization']);
 
       incomeStatements.push({
         fiscalYear: year,
-        revenue: revenueData[i]?.v || 0,
-        costOfRevenue: 0,
-        grossProfit: 0,
-        researchAndDevelopment: null,
-        sellingGeneralAdmin: null,
-        operatingIncome: 0,
-        interestExpense: null,
-        netIncome: (series as Record<string, Array<{ v: number }>>).netIncome?.[i]?.v || 0,
-        eps: epsData[i]?.v || 0,
-        epsDiluted: epsData[i]?.v || 0,
-        ebitda: 0,
-        sharesOutstanding: 0,
-        reportDate: year,
+        revenue,
+        costOfRevenue,
+        grossProfit,
+        researchAndDevelopment: find(ic, ['ResearchAndDevelopmentExpense']) || null,
+        sellingGeneralAdmin: find(ic, ['SellingGeneralAndAdministrativeExpense']) || null,
+        operatingIncome,
+        interestExpense: find(ic, ['InterestExpense', 'InterestExpenseDebt']) || null,
+        netIncome,
+        eps,
+        epsDiluted: find(ic, ['EarningsPerShareDiluted']) || eps,
+        ebitda: ebitda || operatingIncome,
+        sharesOutstanding,
+        reportDate: f.endDate || year,
       });
+
+      const totalAssets = find(bs, ['Assets']);
+      const currentAssets = find(bs, ['AssetsCurrent']);
+      const cash = find(bs, [
+        'CashAndCashEquivalentsAtCarryingValue',
+        'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents',
+      ]);
+      const totalLiabilities = find(bs, ['Liabilities']);
+      const currentLiabilities = find(bs, ['LiabilitiesCurrent']);
+      const longTermDebt = find(bs, ['LongTermDebtNoncurrent', 'LongTermDebt']);
+      const shortTermDebt = find(bs, ['LongTermDebtCurrent', 'ShortTermBorrowings']);
+      const totalEquity = find(bs, ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest']);
+      const bookValuePerShare = sharesOutstanding > 0 ? totalEquity / sharesOutstanding : 0;
 
       balanceSheets.push({
         fiscalYear: year,
-        totalAssets: 0,
-        currentAssets: 0,
-        cash: 0,
-        shortTermInvestments: null,
-        accountsReceivable: null,
-        inventory: null,
-        totalLiabilities: 0,
-        currentLiabilities: 0,
-        longTermDebt: 0,
-        totalDebt: 0,
-        totalEquity: 0,
-        retainedEarnings: null,
-        bookValuePerShare: basicFinancials.metric?.bookValuePerShareAnnual || 0,
-        reportDate: year,
+        totalAssets,
+        currentAssets,
+        cash,
+        shortTermInvestments: find(bs, ['ShortTermInvestments']) || null,
+        accountsReceivable: find(bs, ['AccountsReceivableNetCurrent']) || null,
+        inventory: find(bs, ['InventoryNet']) || null,
+        totalLiabilities,
+        currentLiabilities,
+        longTermDebt,
+        totalDebt: longTermDebt + shortTermDebt,
+        totalEquity,
+        retainedEarnings: find(bs, ['RetainedEarningsAccumulatedDeficit']) || null,
+        bookValuePerShare,
+        reportDate: f.endDate || year,
       });
+
+      const operatingCashFlow = find(cf, [
+        'NetCashProvidedByUsedInOperatingActivities',
+        'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations',
+      ]);
+      const capex = Math.abs(find(cf, [
+        'PaymentsToAcquirePropertyPlantAndEquipment',
+        'PaymentsForCapitalImprovements',
+      ]));
+      const depreciation = find(cf, [
+        'DepreciationDepletionAndAmortization',
+        'DepreciationAndAmortization',
+        'Depreciation',
+      ]);
 
       cashFlowStatements.push({
         fiscalYear: year,
-        netIncome: 0,
-        depreciation: 0,
-        operatingCashFlow: 0,
-        capitalExpenditure: 0,
-        investingCashFlow: 0,
-        financingCashFlow: 0,
-        freeCashFlow: basicFinancials.metric?.freeCashFlowPerShareTTM || 0,
-        dividendsPaid: null,
-        stockRepurchases: null,
-        reportDate: year,
+        netIncome: find(cf, ['NetIncomeLoss', 'ProfitLoss']) || netIncome,
+        depreciation,
+        operatingCashFlow,
+        capitalExpenditure: capex,
+        investingCashFlow: find(cf, ['NetCashProvidedByUsedInInvestingActivities']),
+        financingCashFlow: find(cf, ['NetCashProvidedByUsedInFinancingActivities']),
+        freeCashFlow: operatingCashFlow - capex,
+        dividendsPaid: find(cf, ['PaymentsOfDividends', 'PaymentsOfDividendsCommonStock']) || null,
+        stockRepurchases: find(cf, ['PaymentsForRepurchaseOfCommonStock']) || null,
+        reportDate: f.endDate || year,
       });
+    }
+
+    // Fallback path: if filings endpoint returned nothing (Finnhub free-tier
+    // restriction for some symbols), seed from the series data so the UI still
+    // shows *something* instead of blank zeros.
+    if (incomeStatements.length === 0) {
+      const epsData = seriesAnnual['epsBasicExclExtraItemsAnnual'] || [];
+      const revenueData =
+        seriesAnnual['salesPerShareAnnual'] || seriesAnnual['revenuePerShareAnnual'] || [];
+      for (let i = 0; i < Math.min(years, epsData.length || revenueData.length); i++) {
+        const year = (epsData[i]?.period || revenueData[i]?.period || '').slice(0, 4);
+        incomeStatements.push({
+          fiscalYear: year,
+          revenue: 0,
+          costOfRevenue: 0,
+          grossProfit: 0,
+          researchAndDevelopment: null,
+          sellingGeneralAdmin: null,
+          operatingIncome: 0,
+          interestExpense: null,
+          netIncome: 0,
+          eps: epsData[i]?.v || 0,
+          epsDiluted: epsData[i]?.v || 0,
+          ebitda: 0,
+          sharesOutstanding: 0,
+          reportDate: year,
+        });
+        balanceSheets.push({
+          fiscalYear: year,
+          totalAssets: 0,
+          currentAssets: 0,
+          cash: 0,
+          shortTermInvestments: null,
+          accountsReceivable: null,
+          inventory: null,
+          totalLiabilities: 0,
+          currentLiabilities: 0,
+          longTermDebt: 0,
+          totalDebt: 0,
+          totalEquity: 0,
+          retainedEarnings: null,
+          bookValuePerShare: metric['bookValuePerShareAnnual'] || 0,
+          reportDate: year,
+        });
+        cashFlowStatements.push({
+          fiscalYear: year,
+          netIncome: 0,
+          depreciation: 0,
+          operatingCashFlow: 0,
+          capitalExpenditure: 0,
+          investingCashFlow: 0,
+          financingCashFlow: 0,
+          freeCashFlow: 0,
+          dividendsPaid: null,
+          stockRepurchases: null,
+          reportDate: year,
+        });
+      }
     }
 
     return {

@@ -49,6 +49,8 @@ export interface DCFResult {
     projectionYears: number;
     estimatedGrowthRate: number;
     startingFcf: number;
+    /** Which cash measure was projected when FCF was unusable */
+    cashSource?: 'fcf' | 'ocf' | 'owner-earnings' | 'net-income';
   };
 }
 
@@ -72,12 +74,36 @@ export function calculateDCF(
   const { discountRate, terminalGrowthRate, projectionYears, customGrowthRate } = params;
   const { cashFlowStatements, incomeStatements } = financials;
 
-  // Get starting FCF (use most recent year)
-  const currentFcf = cashFlowStatements[0]?.freeCashFlow || 0;
+  // Pick the best available cash measure (in order of preference):
+  //   1. Free cash flow (OCF - CapEx)        — Buffett's gold standard
+  //   2. Operating cash flow                  — when CapEx is missing/noisy
+  //   3. Owner earnings (NI + D&A - 70% CapEx)
+  //   4. Net income                           — last resort
+  // The label is exposed in `assumptions.cashSource` so the UI can be honest
+  // about what was projected.
+  let currentFcf = cashFlowStatements[0]?.freeCashFlow || 0;
+  let cashSource: 'fcf' | 'ocf' | 'owner-earnings' | 'net-income' = 'fcf';
 
-  // If FCF is negative, we can't use DCF reliably
   if (currentFcf <= 0) {
-    return createNegativeFcfResult(params);
+    const ocf = cashFlowStatements[0]?.operatingCashFlow || 0;
+    if (ocf > 0) {
+      currentFcf = ocf;
+      cashSource = 'ocf';
+    } else {
+      const ni = incomeStatements[0]?.netIncome || 0;
+      const dep = cashFlowStatements[0]?.depreciation || 0;
+      const capex = cashFlowStatements[0]?.capitalExpenditure || 0;
+      const ownerEarnings = ni + dep - capex * 0.7;
+      if (ownerEarnings > 0) {
+        currentFcf = ownerEarnings;
+        cashSource = 'owner-earnings';
+      } else if (ni > 0) {
+        currentFcf = ni;
+        cashSource = 'net-income';
+      } else {
+        return createNegativeFcfResult(params);
+      }
+    }
   }
 
   // Estimate growth rate from history if not provided
@@ -148,6 +174,7 @@ export function calculateDCF(
       projectionYears,
       estimatedGrowthRate: growthRate,
       startingFcf: currentFcf,
+      cashSource,
     },
   };
 }
@@ -233,6 +260,7 @@ function createNegativeFcfResult(params: DCFParams): DCFResult {
       projectionYears: params.projectionYears,
       estimatedGrowthRate: 0,
       startingFcf: 0,
+      cashSource: undefined,
     },
   };
 }

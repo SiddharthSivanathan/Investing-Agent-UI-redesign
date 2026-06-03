@@ -24,7 +24,45 @@ An AI-powered MCP server for value investors. Analyze stocks using principles fr
 - 📝 **Report Generation** - Daily summaries and deep analysis reports
 - 🔌 **Pluggable Data Sources** - Easy to add your own data providers
 
-## Quick Start
+## Run the Web UI locally
+
+Want a dashboard, not a chatbot? This repo ships with a polished single-page web UI
+(dark theme, intrinsic-value visualizations, moat radar, financials table) backed by
+the same analysis engine the MCP server uses.
+
+```bash
+git clone https://github.com/danielchu97/Value-Investing-Agent.git
+cd Value-Investing-Agent
+npm install
+npm run web
+```
+
+Then open <http://127.0.0.1:5173> — no API key required for the default Yahoo Finance
+provider. Switch to Finnhub or Alpha Vantage from the in-app Settings dialog if you
+hit Yahoo rate limits.
+
+Set a different host/port with environment variables:
+
+```bash
+PORT=3000 HOST=0.0.0.0 npm run web
+```
+
+### In VS Code
+
+The repo ships a `.vscode/` folder with ready-made launch configs and tasks.
+
+1. Open the folder in VS Code (`File → Open Folder…`)
+2. Accept the prompt to install recommended extensions (ESLint, Tailwind, Vitest)
+3. Hit **F5** to launch the *Web UI (tsx)* config — or **Ctrl+Shift+P → "Tasks: Run Task" → web** for non-debug mode
+4. The terminal will print `▸ http://127.0.0.1:5173` — Ctrl+click to open
+
+Other launch configs available:
+- **Web UI (watch mode)** — auto-restarts on file changes
+- **Debug web server** — full Node debugger attached
+- **Run MCP server (built)** — builds, then runs the MCP stdio server
+- **Vitest: current file** — debug the currently-open test file
+
+## Quick Start (MCP server)
 
 ### Prerequisites
 
