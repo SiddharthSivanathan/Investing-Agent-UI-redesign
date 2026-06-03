@@ -353,7 +353,7 @@ app.use((req, res, next) => {
 });
 
 const PORT = Number(process.env.PORT || 5173);
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Activate provider from environment on startup
 async function bootstrapProvider() {
