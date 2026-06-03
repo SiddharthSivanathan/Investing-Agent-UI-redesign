@@ -144,8 +144,18 @@ export async function setProvider(name: string, config?: ProviderConfig): Promis
  */
 export function getProvider(): DataProvider {
   if (!currentProvider) {
-    currentProvider = createProvider('yahoo-finance');
+    const providerName = process.env.PROVIDER || 'yahoo-direct';
+
+    currentProvider = createProvider(providerName, {
+      name: providerName,
+      apiKey:
+        process.env.FINNHUB_API_KEY ||
+        process.env.ALPHA_VANTAGE_API_KEY,
+    });
+
+    currentProviderName = providerName;
   }
+
   return currentProvider;
 }
 

@@ -67,16 +67,7 @@ export class FinnhubProvider extends BaseProvider {
       throw new Error(`Finnhub API error: ${response.status}`);
     }
 
-    const text = await response.text();
-
-try {
-  return JSON.parse(text) as T;
-} catch (err) {
-  console.error('Finnhub raw response:', text);
-  throw new Error(
-    `Finnhub returned non-JSON response. Status=${response.status}. Body=${text.substring(0, 300)}`
-  );
-}
+    return response.json() as Promise<T>;
   }
 
   /**
